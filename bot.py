@@ -34,6 +34,160 @@ def _mask_key(k: str) -> str:
         return k
     return f"{k[:4]}...{k[-4:]}"
 
+def get_json(path, params=None):
+    url = f"{API_BASE}/{path}"
+    headers = get_api_headers()
+    r = requests.get(url, headers=headers, params=params)
+    r.raise_for_status()
+    return r.json()
+
+def _fetch_target_progress(target: dict, obj: dict) -> dict:
+    """Fetch current tick and objective-period progress for a specific target"""
+    try:
+        target_type = target.get("type", "").lower()
+        system = target.get("system") or obj.get("system")
+        faction = target.get("faction") or obj.get("faction")
+        
+        # Get objective date range for overall calculation
+        start_date = obj.get("startdate")
+        end_date = obj.get("enddate")
+        
+        # Map target types to API endpoints and data extraction
+        if target_type == "space_cz":
+            # Fetch space CZ data for current tick
+            data_ct = get_json("syntheticcz-summary", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("cz_count", 0) for row in (data_ct or []) if row.get("starsystem") == system)
+            
+            # Fetch data for objective period
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("syntheticcz-summary", params=params_obj)
+            total_obj = sum(row.get("cz_count", 0) for row in (data_obj or []) if row.get("starsystem") == system)
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "CZs completed"}
+        
+        elif target_type == "ground_cz":
+            # Fetch ground CZ data for current tick
+            data_ct = get_json("syntheticgroundcz-summary", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("cz_count", 0) for row in (data_ct or []) if row.get("starsystem") == system)
+            
+            # Fetch data for objective period
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("syntheticgroundcz-summary", params=params_obj)
+            total_obj = sum(row.get("cz_count", 0) for row in (data_obj or []) if row.get("starsystem") == system)
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "Ground CZs completed"}
+        
+        elif target_type == "bv":
+            # Fetch bounty vouchers
+            data_ct = get_json("summary/bounty-vouchers", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("bounty_vouchers", 0) for row in (data_ct or []))
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/bounty-vouchers", params=params_obj)
+            total_obj = sum(row.get("bounty_vouchers", 0) for row in (data_obj or []))
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "CR in bounties"}
+        
+        elif target_type == "cb":
+            # Fetch combat bonds
+            data_ct = get_json("summary/combat-bonds", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("combat_bonds", 0) for row in (data_ct or []))
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/combat-bonds", params=params_obj)
+            total_obj = sum(row.get("combat_bonds", 0) for row in (data_obj or []))
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "CR in bonds"}
+        
+        elif target_type == "inf":
+            # Fetch influence data
+            data_ct = get_json("summary/influence-by-faction", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("influence", 0) for row in (data_ct or []) if row.get("faction_name") == faction)
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/influence-by-faction", params=params_obj)
+            total_obj = sum(row.get("influence", 0) for row in (data_obj or []) if row.get("faction_name") == faction)
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "INF gained"}
+        
+        elif target_type == "expl":
+            # Fetch exploration data
+            data_ct = get_json("summary/exploration-sales", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("total_exploration_sales", 0) for row in (data_ct or []))
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/exploration-sales", params=params_obj)
+            total_obj = sum(row.get("total_exploration_sales", 0) for row in (data_obj or []))
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "CR in exploration"}
+        
+        elif target_type == "trade_prof":
+            # Fetch trade profit data
+            data_ct = get_json("summary/market-events", params={"period": "ct", "system_name": system})
+            total_ct = sum(row.get("total_profit", 0) for row in (data_ct or []))
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/market-events", params=params_obj)
+            total_obj = sum(row.get("total_profit", 0) for row in (data_obj or []))
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "CR profit"}
+        
+        elif target_type == "mission_fail":
+            # Fetch mission failures
+            data_ct = get_json("summary/missions-failed", params={"period": "ct", "system_name": system})
+            total_ct = len(data_ct or [])
+            
+            params_obj = {"system_name": system}
+            if start_date and end_date:
+                params_obj["start_date"] = start_date
+                params_obj["end_date"] = end_date
+            else:
+                params_obj["period"] = "all"
+            data_obj = get_json("summary/missions-failed", params=params_obj)
+            total_obj = len(data_obj or [])
+            
+            return {"total": total_ct, "total_objective": total_obj, "label": "missions failed"}
+        
+        return {"total": 0, "total_objective": 0, "label": ""}
+    except Exception as e:
+        # Silently fail and return 0 to avoid breaking the UI
+        return {"total": 0, "total_objective": 0, "label": ""}
+
 @bot.event
 async def on_ready():
     print(f'🚀 {bot.user} is now online and ready!')
@@ -86,43 +240,153 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                 return
             active_objectives = filtered
         
-        # Sort by priority
-        active_objectives.sort(key=lambda x: int(x.get('priority', 0)), reverse=True)
+        # Try to get user's current system for distance calculation
+        current_system = None
+        user_coords = None
+        discord_id = str(interaction.user.id)
+        
+        try:
+            location_response = requests.get(
+                f'{API_BASE}cmdr_system',
+                headers=headers,
+                params={"discord_id": discord_id},
+                timeout=10
+            )
+            if location_response.status_code == 200:
+                location_data = location_response.json()
+                current_system = location_data.get('current_system')
+        except:
+            pass  # Silently fail if we can't get location
+        
+        # If we have a current system, fetch coordinates from EDSM
+        system_coords = {}
+        if current_system:
+            # Collect all system names (current + objectives)
+            system_names = [current_system]
+            for obj in active_objectives:
+                obj_system = obj.get('system')
+                if obj_system and obj_system not in system_names:
+                    system_names.append(obj_system)
+            
+            # Batch fetch coordinates from EDSM
+            try:
+                edsm_params = [('systemName[]', name) for name in system_names]
+                edsm_params.append(('showCoordinates', '1'))
+                
+                edsm_response = requests.get(
+                    'https://www.edsm.net/api-v1/systems',
+                    params=edsm_params,
+                    timeout=10
+                )
+                if edsm_response.status_code == 200:
+                    edsm_data = edsm_response.json()
+                    for system in edsm_data:
+                        name = system.get('name')
+                        coords = system.get('coords')
+                        if name and coords:
+                            system_coords[name] = coords
+                    
+                    # Get user's coordinates
+                    user_coords = system_coords.get(current_system)
+            except:
+                pass  # Silently fail if EDSM is unavailable
+        
+        # Calculate distances and add to objectives
+        objectives_with_distance = []
+        for obj in active_objectives:
+            obj_system = obj.get('system')
+            distance = None
+            
+            if user_coords and obj_system in system_coords:
+                obj_coords = system_coords[obj_system]
+                distance = calculate_distance(user_coords, obj_coords)
+            
+            objectives_with_distance.append({
+                'objective': obj,
+                'distance': distance
+            })
+        
+        # Sort by distance if available, otherwise by priority
+        if user_coords:
+            objectives_with_distance.sort(key=lambda x: (x['distance'] is None, x['distance'] if x['distance'] is not None else float('inf')))
+        else:
+            objectives_with_distance.sort(key=lambda x: int(x['objective'].get('priority', 0)), reverse=True)
         
         # Create embed
         title = "⚒️ Current CIU Objectives"
         if filter_value != "all":
             title += f" - {filter_value.capitalize()}"
+        
+        description = "_From each according to their ability, to each according to their needs_"
+        if current_system and user_coords:
+            description += f"\n📍 Your location: **{current_system}**"
+        elif current_system:
+            description += f"\n⚠️ Could not fetch coordinates for distance calculation"
+        else:
+            description += f"\n💡 Use `/linkcmdr` to see distances from your location"
+        description += "\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
             
         embed = discord.Embed(
             title=title,
-            description="From each according to their ability, to each according to their needs",
+            description=description,
             color=discord.Color.red()
         )
         
-        for obj in active_objectives[:5]:  # Show top 5
+        for item in objectives_with_distance[:5]:  # Show top 5
+            obj = item['objective']
+            distance = item['distance']
+            
             priority = "⭐" * min(int(obj.get('priority', 0)), 5)
             title_text = obj.get('title', 'Unnamed')
             system = obj.get('system', 'N/A')
             faction = obj.get('faction', 'N/A')
+            description = obj.get('description', '')
+            
+            # Build field name with distance
+            field_name = f"{priority} {title_text}"
+            if distance is not None:
+                field_name += f" [{distance:.2f} Ly]"
             
             # Build target summary
             targets = obj.get('targets', [])
             target_summary = []
-            for target in targets[:3]:  # Show first 3 targets
+            for target in targets:
                 t_type = target.get('type', '').upper()
                 icon = get_target_icon(t_type)
                 target_overall = target.get('targetoverall', 0)
+                              
+                # Fetch current tick and objective period progress
+                progress_data = _fetch_target_progress(target, obj)
+                current_total = progress_data.get("total", 0)
+                objective_total = progress_data.get("total_objective", 0)
+              
                 if target_overall > 0:
-                    target_summary.append(f"{icon} {t_type}: {target_overall:,}")
-            
-            value = f"**System:** {system}\n**Faction:** {faction}\n"
+                    # Calculate percentages
+                    percent_ct = (current_total / target_overall * 100) if target_overall > 0 else 0
+                    
+                    # Build progress string showing both metrics
+                    progress_str = f"This Tick: **{current_total:,} / {target_overall:,}** ({percent_ct:.1f}%). *{objective_total} completed since {target.get('start_time', 'mission start')}*"
+
+                    target_summary.append(f"{icon} {t_type}\n{progress_str}")
+
+            # Build the value content with proper formatting
+            value_parts = []
+
+            if description:
+                # Trim any extra whitespace/newlines and wrap in italics
+                value_parts.append(f"_{description.strip()}_")
+
+            value_parts.append(f"**System:** {system}\n**Faction:** {faction}")
+
             if target_summary:
-                value += "**Targets:**\n" + "\n".join(target_summary)
+                value_parts.append("**Targets:**\n" + "\n".join(target_summary))
+
+            # Join all parts with proper spacing and add a separator
+            value = "\n".join(value_parts)
             
             embed.add_field(
-                name=f"{priority} {title_text}",
-                value=value,
+                name=field_name,
+                value=f"{value}\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
                 inline=False
             )
         
@@ -175,24 +439,115 @@ async def colonies(interaction: discord.Interaction):
             await interaction.followup.send("📭 No priority colonies at the moment!")
             return
         
+        # Try to get user's current system for distance calculation
+        current_system = None
+        user_coords = None
+        discord_id = str(interaction.user.id)
+        
+        try:
+            location_response = requests.get(
+                f'{API_BASE}cmdr_system',
+                headers=headers,
+                params={"discord_id": discord_id},
+                timeout=10
+            )
+            if location_response.status_code == 200:
+                location_data = location_response.json()
+                current_system = location_data.get('current_system')
+        except:
+            pass  # Silently fail if we can't get location
+        
+        # If we have a current system, fetch coordinates from EDSM
+        system_coords = {}
+        if current_system:
+            # Collect all system names (current + colonies)
+            system_names = [current_system]
+            for colony in colonies_list:
+                colony_system = colony.get('starsystem')
+                if colony_system and colony_system not in system_names:
+                    system_names.append(colony_system)
+            
+            # Batch fetch coordinates from EDSM
+            try:
+                edsm_params = [('systemName[]', name) for name in system_names]
+                edsm_params.append(('showCoordinates', '1'))
+                
+                edsm_response = requests.get(
+                    'https://www.edsm.net/api-v1/systems',
+                    params=edsm_params,
+                    timeout=10
+                )
+                if edsm_response.status_code == 200:
+                    edsm_data = edsm_response.json()
+                    for system in edsm_data:
+                        name = system.get('name')
+                        coords = system.get('coords')
+                        if name and coords:
+                            system_coords[name] = coords
+                    
+                    # Get user's coordinates
+                    user_coords = system_coords.get(current_system)
+            except:
+                pass  # Silently fail if EDSM is unavailable
+        
+        # Calculate distances and add to colonies
+        colonies_with_distance = []
+        for colony in colonies_list:
+            colony_system = colony.get('starsystem')
+            distance = None
+            
+            if user_coords and colony_system in system_coords:
+                colony_coords = system_coords[colony_system]
+                distance = calculate_distance(user_coords, colony_coords)
+            
+            colonies_with_distance.append({
+                'colony': colony,
+                'distance': distance
+            })
+        
+        # Sort by distance if available, otherwise by priority
+        if user_coords:
+            colonies_with_distance.sort(key=lambda x: (x['distance'] is None, x['distance'] if x['distance'] is not None else float('inf')))
+        else:
+            colonies_with_distance.sort(key=lambda x: int(x['colony'].get('priority', 0)), reverse=True)
+        
+        # Create embed
+        embed_title = "🌍 Colonisation Goals"
+        embed_desc = "Use SrvSurvey to track your help!"
+        
+        if current_system and user_coords:
+            embed_desc += f"\n📍 Your location: **{current_system}**"
+        elif current_system:
+            embed_desc += f"\n⚠️ Could not fetch coordinates for distance calculation"
+        else:
+            embed_desc += f"\n💡 Use `/linkcmdr` to see distances from your location"
+        
         embed = discord.Embed(
-            title="🌍 Colonisation Goals",
-            description="Use SrvSurvey to track your help!",
+            title=embed_title,
+            description=embed_desc,
             color=discord.Color.gold()
         )
         
-        for colony in colonies_list[:5]:
+        for item in colonies_with_distance[:5]:
+            colony = item['colony']
+            distance = item['distance']
+            
             priority = "⭐" * min(colony.get('priority', 0), 5)
             system = colony.get('starsystem', 'Unknown')
             cmdr = colony.get('cmdr', 'N/A')
             raven_url = colony.get('ravenurl', '')
+            
+            # Build field name with distance
+            field_name = f"{priority} {system}"
+            if distance is not None:
+                field_name += f" [{distance:.2f} Ly]"
             
             value = f"**Commander:** {cmdr}\n"
             if raven_url:
                 value += f"[🔗 View on Raven Colonial]({raven_url})"
             
             embed.add_field(
-                name=f"{priority} {system}",
+                name=field_name,
                 value=value,
                 inline=False
             )
@@ -223,6 +578,14 @@ async def exploring(interaction: discord.Interaction):
     await show_goals_helper(interaction, "explore")
 
 # Helper functions
+def calculate_distance(coords1, coords2):
+    """Calculate Euclidean distance between two coordinate sets in 3D space"""
+    import math
+    dx = coords2['x'] - coords1['x']
+    dy = coords2['y'] - coords1['y']
+    dz = coords2['z'] - coords1['z']
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+
 def is_active(obj):
     """Check if objective is currently active"""
     try:
@@ -302,7 +665,7 @@ async def link_cmdr(interaction: discord.Interaction, cmdr_name: str):
             
             if 'User not found' in error_msg:
                 await interaction.followup.send(
-                    f"❌ You don't have a user account yet. Please verify with the bot first using `/verify` or contact an admin.",
+                    f"❌ You don't have a user account yet. Please login into the dashboard at https://dashboard.sinistra-ciu.space",
                     ephemeral=True
                 )
             elif 'Cmdr' in error_msg and 'not found' in error_msg:
@@ -396,6 +759,201 @@ async def where_am_i(interaction: discord.Interaction):
             
     except requests.RequestException as e:
         await interaction.followup.send(f"❌ Error connecting to backend: {str(e)}")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: {str(e)}")
+
+
+@bot.tree.command(name="help", description="Show all available bot commands")
+async def help_command(interaction: discord.Interaction):
+    """Show little helper for setup and how to work with Sinistra"""
+    await interaction.response.defer()
+    
+    embed = discord.Embed(
+        title="⚒️ Welcome to Sinistra Bot!",
+        description="Your companion for CIU operations in Elite Dangerous",
+        color=discord.Color.red()
+    )
+    
+    # Getting Started
+    embed.add_field(
+        name="⚒️ Getting Started",
+        value=(
+            "1. Follow the instructions in #work to set up EDMC and BGSTally!\n"
+            "2. **Visit the dashboard to automatically create a user**: [CIU Dashboard](https://dashboard.sinistra-ciu.space)"
+            "3. **Link your commander**: Use `/linkcmdr <your_cmdr_name>`\n"
+            "4. **Verify it works**: Use `/wheream` to check your location\n"
+            "5. **Explore commands**: Use `/list` to see all available commands\n"
+        ),
+        inline=False
+    )
+    
+    # What you can do
+    embed.add_field(
+        name="⚒️ What Can You Do?",
+        value=(
+            "• View current objectives and colonies with distances\n"
+            "• Check your commander's location in-game\n"
+            "• Calculate distances between systems\n"
+            "• Filter objectives by activity type (fight, haul, explore)"
+        ),
+        inline=False
+    )
+    
+    # Important Note
+    embed.add_field(
+        name="⚠️ Important",
+        value=(
+            "Make sure you're running EDMC and BGSTally! Follow the instructions pinned in #work"
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="From each according to their ability, to each according to their needs")
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="list", description="Quick reference of all commands")
+async def list_command(interaction: discord.Interaction):
+    """Show a concise list of all available commands"""
+    await interaction.response.defer()
+    
+    commands_text = """
+**📋 Objectives**
+• `/goals` - Current CIU objectives
+• `/fight` - Combat objectives
+• `/haul` - Trade objectives
+• `/explore` - Exploration objectives
+• `/colonies` - Colonization goals
+
+**🧑‍🚀 Commander**
+• `/linkcmdr <name>` - Link your commander
+• `/wheream` - Your current location
+• `/dist <sys1> [sys2]` - Distance calculator
+
+**ℹ️ Help**
+• `/help` - Detailed help
+• `/list` - This list
+    """
+    
+    embed = discord.Embed(
+        title="⚡ Quick Command Reference",
+        description=commands_text,
+        color=discord.Color.gold()
+    )
+    
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="dist", description="Calculate distance between two systems")
+@app_commands.describe(
+    system1="First system name",
+    system2="Second system name (leave empty to use your current location)"
+)
+async def distance(interaction: discord.Interaction, system1: str, system2: str = None):
+    """Calculate the distance between two systems"""
+    await interaction.response.defer()
+    
+    try:
+        headers = get_api_headers()
+        
+        # If system2 is not provided, try to get user's current system
+        if not system2:
+            discord_id = str(interaction.user.id)
+            try:
+                location_response = requests.get(
+                    f'{API_BASE}cmdr_system',
+                    headers=headers,
+                    params={"discord_id": discord_id},
+                    timeout=10
+                )
+                if location_response.status_code == 200:
+                    location_data = location_response.json()
+                    system2 = location_data.get('current_system')
+                    if not system2:
+                        await interaction.followup.send(
+                            "❌ No second system provided and you don't have a current location. "
+                            "Either provide two system names or link your commander with `/linkcmdr`.",
+                            ephemeral=True
+                        )
+                        return
+                else:
+                    await interaction.followup.send(
+                        "❌ No second system provided and couldn't fetch your current location. "
+                        "Please provide both system names or link your commander with `/linkcmdr`.",
+                        ephemeral=True
+                    )
+                    return
+            except:
+                await interaction.followup.send(
+                    "❌ No second system provided and couldn't fetch your current location.",
+                    ephemeral=True
+                )
+                return
+        
+        # Fetch coordinates from EDSM for both systems
+        system_names = [system1, system2]
+        edsm_params = [('systemName[]', name) for name in system_names]
+        edsm_params.append(('showCoordinates', '1'))
+        
+        edsm_response = requests.get(
+            'https://www.edsm.net/api-v1/systems',
+            params=edsm_params,
+            timeout=10
+        )
+        
+        if edsm_response.status_code != 200:
+            await interaction.followup.send("❌ Failed to fetch system data from EDSM.")
+            return
+        
+        edsm_data = edsm_response.json()
+        
+        # Build a dict of system coordinates
+        system_coords = {}
+        for system in edsm_data:
+            name = system.get('name')
+            coords = system.get('coords')
+            if name and coords:
+                system_coords[name] = coords
+        
+        # Check if we have coordinates for both systems
+        coords1 = system_coords.get(system1)
+        coords2 = system_coords.get(system2)
+        
+        if not coords1:
+            await interaction.followup.send(
+                f"❌ System **{system1}** not found or has no coordinates in EDSM.",
+                ephemeral=True
+            )
+            return
+        
+        if not coords2:
+            await interaction.followup.send(
+                f"❌ System **{system2}** not found or has no coordinates in EDSM.",
+                ephemeral=True
+            )
+            return
+        
+        # Calculate distance
+        distance = calculate_distance(coords1, coords2)
+        
+        # Create embed with result
+        embed = discord.Embed(
+            title="📏 Distance Calculator",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(name="From", value=f"**{system1}**", inline=True)
+        embed.add_field(name="To", value=f"**{system2}**", inline=True)
+        embed.add_field(name="Distance", value=f"**{distance:.2f} Ly**", inline=False)
+        
+        # Add coordinates in footer for reference
+        embed.set_footer(text=f"{system1}: ({coords1['x']:.2f}, {coords1['y']:.2f}, {coords1['z']:.2f}) | "
+                             f"{system2}: ({coords2['x']:.2f}, {coords2['y']:.2f}, {coords2['z']:.2f})")
+        
+        await interaction.followup.send(embed=embed)
+        
+    except requests.RequestException as e:
+        await interaction.followup.send(f"❌ Error connecting to EDSM: {str(e)}")
     except Exception as e:
         await interaction.followup.send(f"❌ Error: {str(e)}")
 
