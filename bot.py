@@ -670,7 +670,7 @@ async def link_cmdr(interaction: discord.Interaction, cmdr_name: str):
                 )
             elif 'Cmdr' in error_msg and 'not found' in error_msg:
                 await interaction.followup.send(
-                    f"❌ Commander **{cmdr_name}** not found in the database. Make sure the name is spelled correctly and that you've uploaded EDDN data.",
+                    f"❌ Commander **{cmdr_name}** not found in the database. Run /synccmdrs to add them. If it is still not working, make sure the name is spelled correctly and that you've used BGSTally.",
                     ephemeral=True
                 )
             else:
@@ -830,6 +830,10 @@ async def list_command(interaction: discord.Interaction):
 • `/wheream` - Your current location
 • `/dist <sys1> [sys2]` - Distance calculator
 
+**📊 Reports**
+• `/ticksummary <period>` - BGS tick summary (ct/lt)
+• `/synccmdrs` - Force adding new commanders to the cmdr list
+
 **ℹ️ Help**
 • `/help` - Detailed help
 • `/list` - This list
@@ -956,6 +960,97 @@ async def distance(interaction: discord.Interaction, system1: str, system2: str 
         await interaction.followup.send(f"❌ Error connecting to EDSM: {str(e)}")
     except Exception as e:
         await interaction.followup.send(f"❌ Error: {str(e)}")
+
+
+@bot.tree.command(name="ticksummary", description="Generate a BGS tick summary report")
+@app_commands.describe(
+    period="Time period for the summary (ct = current tick, lt = last tick)"
+)
+@app_commands.choices(period=[
+    app_commands.Choice(name="Current Tick", value="ct"),
+    app_commands.Choice(name="Last Tick", value="lt")
+])
+async def tick_summary(interaction: discord.Interaction, period: app_commands.Choice[str]):
+    """Trigger a daily tick summary to be posted in Discord"""
+    await interaction.response.defer()
+    
+    try:
+        headers = get_api_headers()
+        
+        # Call the backend API to trigger the summary
+        response = requests.post(
+            f'{API_BASE}summary/discord/tick',
+            headers=headers,
+            params={"period": period.value},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            period_label = "Current Tick" if period.value == "ct" else "Last Tick"
+            await interaction.followup.send(
+                f"✅ Successfully triggered **{period_label}** summary! Check the BGS channel.",
+                ephemeral=True
+            )
+        else:
+            error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+            error_msg = error_data.get('error', f'HTTP {response.status_code}')
+            await interaction.followup.send(
+                f"❌ Failed to trigger summary: {error_msg}",
+                ephemeral=True
+            )
+            
+    except requests.RequestException as e:
+        await interaction.followup.send(
+            f"❌ Error connecting to backend: {str(e)}",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error: {str(e)}",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="synccmdrs", description="Force add new commanders to the cmdr list")
+async def sync_cmdrs(interaction: discord.Interaction):
+    """Manually trigger adding commanders from events only (no Inara lookups)"""
+    await interaction.response.defer()
+    
+    try:
+        headers = get_api_headers()
+        
+        # Call the backend API to trigger the cmdr sync (no Inara lookups)
+        response = requests.post(
+            f'{API_BASE}sync/cmdrs?inara=false',
+            headers=headers,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            summary = data.get('summary', 'Sync completed')
+            await interaction.followup.send(
+                f"✅ **Cmdr Sync Complete**\n{summary}",
+                ephemeral=True
+            )
+        else:
+            error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+            error_msg = error_data.get('error', f'HTTP {response.status_code}')
+            await interaction.followup.send(
+                f"❌ Failed to sync commanders: {error_msg}",
+                ephemeral=True
+            )
+            
+    except requests.RequestException as e:
+        await interaction.followup.send(
+            f"❌ Error connecting to backend: {str(e)}",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error: {str(e)}",
+            ephemeral=True
+        )
 
 
 # Run the bot
