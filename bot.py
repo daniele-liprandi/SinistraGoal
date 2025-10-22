@@ -833,6 +833,7 @@ async def list_command(interaction: discord.Interaction):
 **📊 Reports**
 • `/ticksummary <period>` - BGS tick summary (ct/lt)
 • `/synccmdrs` - Force adding new commanders to the cmdr list
+• `/nexttick` - Show next BGS tick prediction
 
 **ℹ️ Help**
 • `/help` - Detailed help
@@ -1051,6 +1052,84 @@ async def sync_cmdrs(interaction: discord.Interaction):
             f"❌ Error: {str(e)}",
             ephemeral=True
         )
+
+
+@bot.tree.command(name="nexttick", description="Show when the next BGS tick is expected")
+async def next_tick(interaction: discord.Interaction):
+    """Show the last BGS tick time and predict when the next one will occur"""
+    await interaction.response.defer()
+    
+    try:
+        # Fetch tick data directly from Zoy's service
+        response = requests.get("http://tick.infomancer.uk/galtick.json", timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        last_tick_str = data.get("lastGalaxyTick")
+        
+        if not last_tick_str:
+            await interaction.followup.send("❌ Unable to fetch tick data from the service.")
+            return
+        
+        # Parse the last tick time
+        from datetime import timedelta
+        last_tick_time = datetime.fromisoformat(last_tick_str.replace('Z', '+00:00'))
+        
+        # Calculate time since last tick
+        now = datetime.now(last_tick_time.tzinfo)
+        time_since_tick = now - last_tick_time
+        
+        # BGS ticks occur approximately every 24 hours (can vary slightly)
+        # Predict next tick (24 hours from last tick)
+        expected_next_tick = last_tick_time + timedelta(hours=24)
+        time_until_next = expected_next_tick - now
+        
+        # Format times
+        hours_since = int(time_since_tick.total_seconds() // 3600)
+        minutes_since = int((time_since_tick.total_seconds() % 3600) // 60)
+        
+        hours_until = int(time_until_next.total_seconds() // 3600)
+        minutes_until = int((time_until_next.total_seconds() % 3600) // 60)
+        
+        # Create embed
+        embed = discord.Embed(
+            title="⏰ BGS Tick Information",
+            description="Elite Dangerous Background Simulation tick timing",
+            color=discord.Color.blue()
+        )
+        
+        # Last tick info
+        last_tick_formatted = last_tick_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+        embed.add_field(
+            name="🕐 Last Tick",
+            value=f"**{last_tick_formatted}**\n_{hours_since}h {minutes_since}m ago_",
+            inline=False
+        )
+        
+        # Next tick prediction
+        next_tick_formatted = expected_next_tick.strftime("%Y-%m-%d %H:%M:%S UTC")
+        if time_until_next.total_seconds() > 0:
+            embed.add_field(
+                name="🔮 Expected Next Tick",
+                value=f"**{next_tick_formatted}**\n_in approximately {hours_until}h {minutes_until}m_",
+                inline=False
+            )
+        else:
+            # Tick is overdue
+            embed.add_field(
+                name="🔮 Expected Next Tick",
+                value=f"**Overdue!**\n_Expected around {next_tick_formatted}_\n_({abs(hours_until)}h {abs(minutes_until)}m overdue)_",
+                inline=False
+            )
+        
+        embed.set_footer(text="⚠️ Tick times can vary by ±30 minutes | Data from tick.infomancer.uk")
+        
+        await interaction.followup.send(embed=embed)
+        
+    except requests.RequestException as e:
+        await interaction.followup.send(f"❌ Error fetching tick data: {str(e)}")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: {str(e)}")
 
 
 # Run the bot
