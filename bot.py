@@ -312,25 +312,9 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
         else:
             objectives_with_distance.sort(key=lambda x: int(x['objective'].get('priority', 0)), reverse=True)
         
-        # Create embed
-        title = "⚒️ Current CIU Objectives"
-        if filter_value != "all":
-            title += f" - {filter_value.capitalize()}"
-        
-        description = "_From each according to their ability, to each according to their needs_"
-        if current_system and user_coords:
-            description += f"\n📍 Your location: **{current_system}**"
-        elif current_system:
-            description += f"\n⚠️ Could not fetch coordinates for distance calculation"
-        else:
-            description += f"\n💡 Use `/linkcmdr` to see distances from your location"
-        description += "\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
-            
-        embed = discord.Embed(
-            title=title,
-            description=description,
-            color=discord.Color.red()
-        )
+        # Create embeds - one per objective with color-coding
+        embeds = []
+        is_first_embed = True
         
         for item in objectives_with_distance[:5]:  # Show top 5
             obj = item['objective']
@@ -340,7 +324,7 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
             title_text = obj.get('title', 'Unnamed')
             system = obj.get('system', 'N/A')
             faction = obj.get('faction', 'N/A')
-            description = obj.get('description', '')
+            obj_desc = obj.get('description', '')
             
             # Build field name with distance
             field_name = f"{priority} {title_text}"
@@ -370,28 +354,75 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     target_summary.append(f"{icon} {t_type}\n{progress_str}")
 
             # Build the value content with proper formatting
-            value_parts = []
-
-            if description:
-                # Trim any extra whitespace/newlines and wrap in italics
-                value_parts.append(f"_{description.strip()}_")
-
-            value_parts.append(f"**System:** {system}\n**Faction:** {faction}")
-
+            # Build critical info first (system, faction, targets)
+            critical_info = f"**System:** {system}\n**Faction:** {faction}"
             if target_summary:
-                value_parts.append("**Targets:**\n" + "\n".join(target_summary))
+                critical_info += "\n**Targets:**\n" + "\n".join(target_summary)
 
-            # Join all parts with proper spacing and add a separator
-            value = "\n".join(value_parts)
+            # Calculate available space for description
+            truncation_notice = "\n*(description truncated)*"
+            max_total_length = 1024
+            critical_length = len(critical_info)
+            available_for_desc = max_total_length - critical_length - len(truncation_notice) - 2  # -2 for \n\n separator
+
+            # Build value with description handling
+            if obj_desc:
+                desc_text = obj_desc.strip()
+                if len(desc_text) > available_for_desc and available_for_desc > 50:
+                    # Truncate description to fit
+                    desc_text = desc_text[:available_for_desc - 3] + "..."
+                    value = f"_{desc_text}_\n\n{critical_info}"
+                elif available_for_desc <= 50:
+                    # Not enough space for description, skip it
+                    value = critical_info
+                else:
+                    # Description fits
+                    value = f"_{desc_text}_\n\n{critical_info}"
+            else:
+                value = critical_info
+
+            # Final safety check: if somehow still too long, truncate from end
+            if len(value) > max_total_length:
+                value = value[:max_total_length - 17] + "\n*(truncated)*"
+            
+            # Get color based on objective type
+            obj_color = get_objective_color(obj)
+            
+            # Create description for this embed
+            if is_first_embed:
+                description = "_From each according to their ability, to each according to their needs_"
+                if current_system and user_coords:
+                    description += f"\n📍 Your location: **{current_system}**"
+                elif current_system:
+                    description += f"\n⚠️ Could not fetch coordinates for distance calculation"
+                else:
+                    description += f"\n💡 Use `/linkcmdr` to see distances from your location"
+                description += "\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
+                is_first_embed = False
+            else:
+                description = "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"
+            
+            # Create embed for this objective
+            title = "⚒️ Current CIU Objectives"
+            if filter_value != "all":
+                title += f" - {filter_value.capitalize()}"
+            
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=obj_color
+            )
             
             embed.add_field(
                 name=field_name,
-                value=f"{value}\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+                value=value,
                 inline=False
             )
+            
+            embed.set_footer(text="Use /colonies for colonization goals")
+            embeds.append(embed)
         
-        embed.set_footer(text="Use /colonies for colonization goals")
-        await interaction.followup.send(embed=embed)
+        await send_chunked_embeds(interaction, embeds)
         
     except requests.RequestException as e:
         await interaction.followup.send(f"❌ Error connecting to backend: {str(e)}")
@@ -596,6 +627,30 @@ def is_active(obj):
     except:
         return True
 
+def get_objective_color(obj: dict) -> discord.Color:
+    """Get embed color based on objective type"""
+    targets = obj.get('targets', [])
+    if not targets:
+        return discord.Color.greyple()
+    
+    # Get the primary target type
+    primary_type = targets[0].get('type', '').lower()
+    
+    color_map = {
+        'space_cz': discord.Color.blue(),      # Combat - blue
+        'ground_cz': discord.Color.blue(),     # Combat - blue
+        'cb': discord.Color.orange(),          # Combat bonds - orange
+        'bv': discord.Color.gold(),            # Bounty vouchers - gold
+        'trade_prof': discord.Color.green(),   # Trade - green
+        'expl': discord.Color.purple(),        # Exploration - purple
+        'inf': discord.Color.red(),            # Influence - red
+        'mission_fail': discord.Color.greyple(),
+        'murder': discord.Color.dark_red(),
+        'visit': discord.Color.blurple()
+    }
+    
+    return color_map.get(primary_type, discord.Color.greyple())
+
 def filter_by_type(objectives, goal_type):
     """Filter objectives by activity type"""
     type_map = {
@@ -631,6 +686,39 @@ def get_target_icon(target_type):
         'MISSION_FAIL': '❌'
     }
     return icons.get(target_type, '🎯')
+
+def truncate_field_value(value: str, max_length: int = 1024) -> tuple[str, bool]:
+    """Truncate a field value to Discord's character limit.
+    
+    Returns: (truncated_value, was_truncated)
+    """
+    if len(value) <= max_length:
+        return value, False
+    
+    # Truncate and add ellipsis
+    truncated = value[:max_length - 4] + "..."
+    return truncated, True
+
+async def send_chunked_embeds(interaction: discord.Interaction, embeds: list):
+    """Send embeds, chunking them if necessary to respect Discord limits.
+    
+    Discord has limits:
+    - 10 embeds per message
+    - 25 fields per embed
+    - 1024 characters per field value
+    - 2048 characters per field name
+    """
+    if not embeds:
+        return
+    
+    # Discord allows up to 10 embeds per message
+    if len(embeds) <= 10:
+        await interaction.followup.send(embeds=embeds)
+    else:
+        # Send in chunks of 10
+        for i in range(0, len(embeds), 10):
+            chunk = embeds[i:i+10]
+            await interaction.followup.send(embeds=chunk)
 
 @bot.tree.command(name="linkcmdr", description="Link your Elite Dangerous commander name to your Discord account")
 @app_commands.describe(cmdr_name="Your Elite Dangerous commander name")
@@ -1093,8 +1181,7 @@ async def next_tick(interaction: discord.Interaction):
         
         # Create embed
         embed = discord.Embed(
-            title="⏰ BGS Tick Information",
-            description="Elite Dangerous Background Simulation tick timing",
+            title="⏰ When is the next tick?",
             color=discord.Color.blue()
         )
         
