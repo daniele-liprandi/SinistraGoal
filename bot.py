@@ -35,158 +35,40 @@ def _mask_key(k: str) -> str:
     return f"{k[:4]}...{k[-4:]}"
 
 def get_json(path, params=None):
-    url = f"{API_BASE}/{path}"
+    # Strip trailing slash from API_BASE to avoid double slashes
+    base = API_BASE.rstrip('/') if API_BASE else ''
+    url = f"{base}/{path}"
     headers = get_api_headers()
     r = requests.get(url, headers=headers, params=params)
     r.raise_for_status()
     return r.json()
 
-def _fetch_target_progress(target: dict, obj: dict) -> dict:
-    """Fetch current tick and objective-period progress for a specific target"""
+def _get_progress_from_backend(target: dict) -> dict:
+    """
+    Extract progress data from the backend's progressDetail.
+
+    The backend now calculates progress server-side and returns it in progressDetail.
+    This includes:
+    - overallProgress: Total progress across all CMDRs for the objective period
+    - cmdrProgress: Per-CMDR breakdown
+
+    Returns dict with 'total_objective' (progress for objective period).
+    For current tick progress, fetch objectives with ?period=ct separately.
+    """
     try:
-        target_type = target.get("type", "").lower()
-        system = target.get("system") or obj.get("system")
-        faction = target.get("faction") or obj.get("faction")
-        
-        # Get objective date range for overall calculation
-        start_date = obj.get("startdate")
-        end_date = obj.get("enddate")
-        
-        # Map target types to API endpoints and data extraction
-        if target_type == "space_cz":
-            # Fetch space CZ data for current tick
-            data_ct = get_json("syntheticcz-summary", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("cz_count", 0) for row in (data_ct or []) if row.get("starsystem") == system)
-            
-            # Fetch data for objective period
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("syntheticcz-summary", params=params_obj)
-            total_obj = sum(row.get("cz_count", 0) for row in (data_obj or []) if row.get("starsystem") == system)
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "CZs completed"}
-        
-        elif target_type == "ground_cz":
-            # Fetch ground CZ data for current tick
-            data_ct = get_json("syntheticgroundcz-summary", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("cz_count", 0) for row in (data_ct or []) if row.get("starsystem") == system)
-            
-            # Fetch data for objective period
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("syntheticgroundcz-summary", params=params_obj)
-            total_obj = sum(row.get("cz_count", 0) for row in (data_obj or []) if row.get("starsystem") == system)
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "Ground CZs completed"}
-        
-        elif target_type == "bv":
-            # Fetch bounty vouchers
-            data_ct = get_json("summary/bounty-vouchers", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("bounty_vouchers", 0) for row in (data_ct or []))
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/bounty-vouchers", params=params_obj)
-            total_obj = sum(row.get("bounty_vouchers", 0) for row in (data_obj or []))
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "CR in bounties"}
-        
-        elif target_type == "cb":
-            # Fetch combat bonds
-            data_ct = get_json("summary/combat-bonds", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("combat_bonds", 0) for row in (data_ct or []))
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/combat-bonds", params=params_obj)
-            total_obj = sum(row.get("combat_bonds", 0) for row in (data_obj or []))
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "CR in bonds"}
-        
-        elif target_type == "inf":
-            # Fetch influence data
-            data_ct = get_json("summary/influence-by-faction", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("influence", 0) for row in (data_ct or []) if row.get("faction_name") == faction)
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/influence-by-faction", params=params_obj)
-            total_obj = sum(row.get("influence", 0) for row in (data_obj or []) if row.get("faction_name") == faction)
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "INF gained"}
-        
-        elif target_type == "expl":
-            # Fetch exploration data
-            data_ct = get_json("summary/exploration-sales", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("total_exploration_sales", 0) for row in (data_ct or []))
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/exploration-sales", params=params_obj)
-            total_obj = sum(row.get("total_exploration_sales", 0) for row in (data_obj or []))
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "CR in exploration"}
-        
-        elif target_type == "trade_prof":
-            # Fetch trade profit data
-            data_ct = get_json("summary/market-events", params={"period": "ct", "system_name": system})
-            total_ct = sum(row.get("total_profit", 0) for row in (data_ct or []))
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/market-events", params=params_obj)
-            total_obj = sum(row.get("total_profit", 0) for row in (data_obj or []))
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "CR profit"}
-        
-        elif target_type == "mission_fail":
-            # Fetch mission failures
-            data_ct = get_json("summary/missions-failed", params={"period": "ct", "system_name": system})
-            total_ct = len(data_ct or [])
-            
-            params_obj = {"system_name": system}
-            if start_date and end_date:
-                params_obj["start_date"] = start_date
-                params_obj["end_date"] = end_date
-            else:
-                params_obj["period"] = "all"
-            data_obj = get_json("summary/missions-failed", params=params_obj)
-            total_obj = len(data_obj or [])
-            
-            return {"total": total_ct, "total_objective": total_obj, "label": "missions failed"}
-        
-        return {"total": 0, "total_objective": 0, "label": ""}
+        progress_detail = target.get("progressDetail", {})
+        if not progress_detail:
+            # Fallback to simple progress field if progressDetail not available
+            return {"total_objective": target.get("progress", 0)}
+
+        return {
+            "total_objective": progress_detail.get("overallProgress", 0),
+            "cmdr_count": len(progress_detail.get("cmdrProgress", [])),
+            "percentage": progress_detail.get("overallPercentage", 0)
+        }
     except Exception as e:
-        # Silently fail and return 0 to avoid breaking the UI
-        return {"total": 0, "total_objective": 0, "label": ""}
+        logging.error(f"_get_progress_from_backend error: {e}")
+        return {"total_objective": 0, "cmdr_count": 0, "percentage": 0}
 
 @bot.event
 async def on_ready():
@@ -205,10 +87,15 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
     """Shared logic for displaying goals"""
     try:
         # Fetch objectives from backend
+        # The backend now calculates progress server-side based on objective dates
         headers = get_api_headers()
         logging.info(f"Requesting {API_BASE}objectives headers={_mask_key(headers.get('apikey',''))} apiversion={headers.get('apiversion')}")
+
+        # Fetch objectives with their date-based progress (uses startdate/enddate)
+        # Use /objectives endpoint (not /api/objectives) to get progressDetail
+        objectives_url = API_BASE.replace('/api/', '/').rstrip('/') + '/objectives'
         response = requests.get(
-            f'{API_BASE}objectives',
+            objectives_url,
             headers=headers,
             params={'active': 'true'},
             timeout=10
@@ -221,6 +108,24 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
             await interaction.followup.send(f"❌ Backend returned HTTP {response.status_code}: {body}")
             return
         objectives = response.json()
+
+        # Also fetch current tick progress for "This Tick" display
+        response_ct = requests.get(
+            objectives_url,
+            headers=headers,
+            params={'active': 'true', 'period': 'ct'},
+            timeout=10
+        )
+        response_ct.raise_for_status()
+        objectives_ct = response_ct.json()
+
+        # Build a map of current tick progress by objective ID + target type
+        ct_progress_map = {}
+        for obj_ct in objectives_ct:
+            obj_id = obj_ct.get('id')
+            for target_ct in obj_ct.get('targets', []):
+                key = (obj_id, target_ct.get('type'))
+                ct_progress_map[key] = target_ct.get('progressDetail', {}).get('overallProgress', 0)
         
         # Filter active objectives
         active_objectives = [
@@ -334,22 +239,37 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
             # Build target summary
             targets = obj.get('targets', [])
             target_summary = []
+            obj_id = obj.get('id')
             for target in targets:
                 t_type = target.get('type', '').upper()
                 icon = get_target_icon(t_type)
                 target_overall = target.get('targetoverall', 0)
-                              
-                # Fetch current tick and objective period progress
-                progress_data = _fetch_target_progress(target, obj)
-                current_total = progress_data.get("total", 0)
+
+                # Get objective period progress from backend's progressDetail
+                progress_data = _get_progress_from_backend(target)
                 objective_total = progress_data.get("total_objective", 0)
-              
+
+                # Get current tick progress from the ct_progress_map
+                ct_key = (obj_id, target.get('type'))
+                current_total = ct_progress_map.get(ct_key, 0)
+
                 if target_overall > 0:
                     # Calculate percentages
                     percent_ct = (current_total / target_overall * 100) if target_overall > 0 else 0
-                    
+
+                    # Format the start date for display
+                    start_date = obj.get('startdate', '')
+                    if start_date:
+                        try:
+                            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                            start_display = start_dt.strftime('%b %d')
+                        except:
+                            start_display = 'mission start'
+                    else:
+                        start_display = 'mission start'
+
                     # Build progress string showing both metrics
-                    progress_str = f"This Tick: **{current_total:,} / {target_overall:,}** ({percent_ct:.1f}%). *{objective_total} completed since {target.get('start_time', 'mission start')}*"
+                    progress_str = f"This Tick: **{current_total:,} / {target_overall:,}** ({percent_ct:.1f}%)\n*{objective_total:,} completed since {start_display}*"
 
                     target_summary.append(f"{icon} {t_type}\n{progress_str}")
 
