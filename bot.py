@@ -27,6 +27,12 @@ def get_api_headers():
     return headers
 
 
+def get_api_error(response_data: dict, default: str = 'Unknown error') -> str:
+    """Extract error message from API response. Handles both Flask format
+    {'error': '...'} and Effect format {'message': '...', '_tag': '...'}."""
+    return response_data.get('error') or response_data.get('message') or default
+
+
 def _mask_key(k: str) -> str:
     if not k:
         return "(none)"
@@ -1003,8 +1009,8 @@ async def link_cmdr(interaction: discord.Interaction, cmdr_name: str):
             )
         elif response.status_code == 404:
             error_data = response.json()
-            error_msg = error_data.get('error', 'Unknown error')
-            
+            error_msg = get_api_error(error_data)
+
             if 'User not found' in error_msg:
                 await interaction.followup.send(
                     f"❌ You don't have a user account yet. Please login into the dashboard at https://dashboard.sinistra-ciu.space",
@@ -1020,7 +1026,7 @@ async def link_cmdr(interaction: discord.Interaction, cmdr_name: str):
         else:
             error_data = response.json()
             await interaction.followup.send(
-                f"❌ Error linking commander: {error_data.get('error', 'Unknown error')}",
+                f"❌ Error linking commander: {get_api_error(error_data)}",
                 ephemeral=True
             )
             
@@ -1080,8 +1086,8 @@ async def where_am_i(interaction: discord.Interaction):
             await interaction.followup.send(embed=embed)
         elif response.status_code == 404:
             error_data = response.json()
-            error_msg = error_data.get('error', 'Unknown error')
-            
+            error_msg = get_api_error(error_data)
+
             if 'No cmdr linked' in error_msg:
                 await interaction.followup.send(
                     f"❌ You haven't linked a commander yet. Use `/linkcmdr <name>` to link your commander.",
@@ -1095,7 +1101,7 @@ async def where_am_i(interaction: discord.Interaction):
         else:
             error_data = response.json()
             await interaction.followup.send(
-                f"❌ Error fetching location: {error_data.get('error', 'Unknown error')}",
+                f"❌ Error fetching location: {get_api_error(error_data)}",
                 ephemeral=True
             )
             
