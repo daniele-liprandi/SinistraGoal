@@ -275,7 +275,7 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                         start_display = 'mission start'
 
                     # Build progress string showing both metrics
-                    progress_str = f"This Tick: **{current_total:,} / {target_overall:,}** ({percent_ct:.1f}%)\n*{objective_total:,} completed since {start_display}*"
+                    progress_str = f"This Tick: **{_fmt_credits(current_total)} / {_fmt_credits(target_overall)}** ({percent_ct:.1f}%)\n*{_fmt_credits(objective_total)} completed since {start_display}*"
 
                     target_summary.append(f"{icon} {t_type}\n{progress_str}")
 
@@ -1478,6 +1478,192 @@ async def next_tick(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Error fetching tick data: {str(e)}")
     except Exception as e:
         await interaction.followup.send(f"❌ Error: {str(e)}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /buckets — BGS activity bucket status
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _fmt_credits(value: float) -> str:
+    """Format a credit value as a human-readable string (1.5M, 400K …)."""
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.0f}K"
+    return str(int(value))
+
+
+def _pips(pts: int, max_pts: int = 10, filled: str = "◆", empty: str = "◇") -> str:
+    """Return a pip string like ◆◆◆◇◇◇◇◇◇◇."""
+    n = max(0, min(pts, max_pts))
+    return filled * n + empty * (max_pts - n)
+
+
+def _bucket_line(emoji: str, label: str, bucket: dict, next_label: str) -> str:
+    """Single embed line for one BGS bucket."""
+    pts = bucket.get("pts", 0)
+    remaining = bucket.get("remaining", 0)
+    pip_str = _pips(pts)
+    line = f"{emoji} **{label}**  `{pip_str}`  **{pts}**"
+    if remaining > 0:
+        line += f"  ·  _{next_label} to next_"
+    elif pts >= 10:
+        line += "  ·  ✅ **CAPPED**"
+    return line
+
+
+def _neg_bucket_line(emoji: str, label: str, bucket: dict) -> str:
+    """Single embed line for a negative BGS bucket."""
+    pts = bucket.get("pts", 0)
+    remaining = bucket.get("remaining", 0)
+    pip_str = _pips(pts, filled="◈", empty="◇")
+    line = f"{emoji} **{label}**  `{pip_str}`  **{pts}**"
+    if pts > 0:
+        line += f"  ·  _{remaining} more = next point_"
+    return line
+
+
+def _buckets_embed(entry: dict, system: str, faction: str) -> discord.Embed:
+    """Build a Discord embed for a single buckets entry."""
+    buckets = entry.get("buckets", {})
+    capped_pts = entry.get("cappedPts", 0)
+    pct_cap = entry.get("pctCap", 0)
+
+    # Colour: green if high cap, gold if mid, orange if low
+    if capped_pts >= 7:
+        color = discord.Color.green()
+    elif capped_pts >= 4:
+        color = discord.Color.gold()
+    else:
+        color = discord.Color.orange()
+
+    influence = entry.get("currentInfluence")
+    period_label = entry.get("period", "—")
+    inf_str = f"  ·  Influence: **{influence:.1f}%**" if influence is not None else ""
+    description = f"📍 **{system}**  ·  {period_label}{inf_str}"
+
+    embed = discord.Embed(
+        title=f"🎯 BGS Prediction — {faction}",
+        description=description,
+        color=color,
+    )
+
+    # ── Positive buckets ──────────────────────────────────────────────────────
+    missions    = buckets.get("missions",    {})
+    exploration = buckets.get("exploration", {})
+    bounty      = buckets.get("bounty",      {})
+
+    positive_lines = [
+        _bucket_line("📈", "Missions",    missions,    f"+{missions.get('remaining', 0)} pluses"),
+        _bucket_line("🔭", "Exploration", exploration, f"{_fmt_credits(exploration.get('remaining', 0))} cr"),
+        _bucket_line("💰", "Bounty",      bounty,      f"{_fmt_credits(bounty.get('remaining', 0))} cr"),
+    ]
+    embed.add_field(name="⬆️ Positive Buckets", value="\n".join(positive_lines), inline=False)
+
+    # ── Negative buckets ──────────────────────────────────────────────────────
+    mission_fail = buckets.get("missionFail", {})
+    murder       = buckets.get("murder",      {})
+
+    negative_lines = [
+        _neg_bucket_line("❌", "Mission Fails", mission_fail),
+        _neg_bucket_line("💀", "Murder",        murder),
+    ]
+    embed.add_field(name="⬇️ Negative Buckets", value="\n".join(negative_lines), inline=False)
+
+    # ── Net result ────────────────────────────────────────────────────────────
+    net_pts   = entry.get("netPts", 0)
+    total_pos = entry.get("totalPositivePts", 0)
+    total_neg = entry.get("totalNegativePts", 0)
+
+    net_pip_str = _pips(capped_pts)
+    result_lines = [
+        f"`{net_pip_str}`  **{capped_pts}/10**  ({pct_cap:.0f}% cap)",
+        f"Raw: **+{total_pos}** pos  ·  **−{total_neg}** neg  =  **{net_pts}** net",
+    ]
+
+    predicted_change = entry.get("predictedInfluenceChange")
+    predicted_inf    = entry.get("predictedInfluence")
+    if predicted_change is not None:
+        sign = "+" if predicted_change >= 0 else ""
+        change_str = f"{sign}{predicted_change:.2f}%"
+        if predicted_inf is not None:
+            result_lines.append(f"Predicted: **{change_str}** → {predicted_inf:.1f}%")
+        else:
+            result_lines.append(f"Predicted: **{change_str}**")
+
+    embed.add_field(name="📊 Net Result", value="\n".join(result_lines), inline=False)
+
+    # Footer: population + faction count
+    footer_parts = []
+    pop       = entry.get("population")
+    fac_count = entry.get("factionCount")
+    max_swing = entry.get("maxSwing")
+    if pop is not None:
+        footer_parts.append(f"Pop: {pop:,}")
+    if fac_count is not None:
+        footer_parts.append(f"Factions: {fac_count}")
+    if max_swing is not None:
+        footer_parts.append(f"Max swing: {max_swing:.2f}%")
+    if footer_parts:
+        embed.set_footer(text="  ·  ".join(footer_parts))
+
+    return embed
+
+
+@bot.tree.command(name="buckets", description="Show BGS activity bucket status for a faction in a system")
+@app_commands.describe(
+    system="Star system name (e.g. Sol)",
+    faction="Faction name",
+    period="Tick period to check (default: current tick)",
+)
+@app_commands.choices(period=[
+    app_commands.Choice(name="Current Tick", value="ct"),
+    app_commands.Choice(name="Last Tick",    value="lt"),
+])
+async def buckets_command(
+    interaction: discord.Interaction,
+    system: str,
+    faction: str,
+    period: app_commands.Choice[str] = None,
+):
+    """Show BGS bucket breakdown for a given faction/system."""
+    await interaction.response.defer()
+
+    period_value = period.value if period else "ct"
+
+    try:
+        data = get_json("buckets", params={"period": period_value, "system": system})
+    except requests.HTTPError as e:
+        await interaction.followup.send(f"❌ API error: {e}")
+        return
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error fetching buckets data: {e}")
+        return
+
+    buckets_list = data.get("buckets", [])
+
+    # Case-insensitive faction match
+    entry = next(
+        (b for b in buckets_list if b["faction"].lower() == faction.lower()),
+        None,
+    )
+
+    if entry is None:
+        available = [b["faction"] for b in buckets_list]
+        hint = (
+            f"\nObjectives in **{system}** cover: {', '.join(available)}"
+            if available
+            else f"\nNo objective found for **{system}** — is it tracked?"
+        )
+        await interaction.followup.send(
+            f"❌ No buckets data for **{faction}** in **{system}** "
+            f"(period: `{period_value}`).{hint}"
+        )
+        return
+
+    await interaction.followup.send(embed=_buckets_embed(entry, system, faction))
 
 
 # Run the bot
