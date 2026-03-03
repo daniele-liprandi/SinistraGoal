@@ -1553,11 +1553,13 @@ def _buckets_embed(entry: dict, system: str, faction: str) -> discord.Embed:
     # ── Positive buckets ──────────────────────────────────────────────────────
     missions    = buckets.get("missions",    {})
     exploration = buckets.get("exploration", {})
+    trade       = buckets.get("trade",       {})
     bounty      = buckets.get("bounty",      {})
 
     positive_lines = [
         _bucket_line("📈", "Missions",    missions,    f"+{missions.get('remaining', 0)} pluses"),
         _bucket_line("🔭", "Exploration", exploration, f"{_fmt_credits(exploration.get('remaining', 0))} cr"),
+        _bucket_line("🛒", "Trade",       trade,       f"{_fmt_credits(trade.get('remaining', 0))} cr"),
         _bucket_line("💰", "Bounty",      bounty,      f"{_fmt_credits(bounty.get('remaining', 0))} cr"),
     ]
     embed.add_field(name="⬆️ Positive Buckets", value="\n".join(positive_lines), inline=False)
