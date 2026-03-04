@@ -267,11 +267,11 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
 
             # Determine best bucket target for boost-type objectives
             obj_type = obj.get('type', '').lower()
-            best_target_type = None
+            best_target_types: set[str] = set()
             if obj_type in BGS_BIN_TYPES:
                 bucket_key = (obj.get('system', ''), obj.get('faction', ''))
                 bucket_entry_for_obj = boost_bucket_map.get(bucket_key) or {}
-                best_target_type = _best_bucket_target(obj, bucket_entry_for_obj)
+                best_target_types = _best_bucket_targets(obj, bucket_entry_for_obj)
 
             for target in targets:
                 t_type = target.get('type', '').upper()
@@ -304,9 +304,9 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     # Build progress string showing both metrics
                     progress_str = f"This Tick: **{_fmt_credits(current_total)} / {_fmt_credits(target_overall)}** ({percent_ct:.1f}%)\n*{_fmt_credits(objective_total)} completed since {start_display}*"
 
-                    # Mark best bucket target (lowest pts = easiest to fill, exponential scaling)
-                    is_best = best_target_type and target.get('type', '').lower() == best_target_type
-                    priority_marker = " ← **invest here**" if is_best else ""
+                    # Mark best bucket targets (all tied at lowest pts = easiest to fill)
+                    is_best = best_target_types and target.get('type', '').lower() in best_target_types
+                    priority_marker = " ⬆" if is_best else ""
 
                     target_summary.append(f"{icon} {t_type}{priority_marker}\n{progress_str}")
 
@@ -688,18 +688,18 @@ BUCKET_TARGET_MAP = {
 }
 
 
-def _best_bucket_target(obj: dict, bucket_entry: dict) -> str | None:
-    """Return the target type with the lowest (uncapped) bucket pts for a boost objective.
+def _best_bucket_targets(obj: dict, bucket_entry: dict) -> set[str]:
+    """Return the set of target types tied at the lowest (uncapped) bucket pts.
 
-    Since thresholds are exponential, the bucket at 0 pts requires the least absolute
-    effort for the next point — that is the one to prioritise.
-    Returns None if no bucket data or all relevant buckets are capped.
+    Since thresholds are exponential, buckets at lower pts require the least absolute
+    effort for the next point — all tied at the minimum are equally worth prioritising.
+    Returns an empty set if no bucket data or all relevant buckets are capped.
     """
     if not bucket_entry:
-        return None
+        return set()
     buckets = bucket_entry.get('buckets', {})
-    best_type = None
-    best_pts = 999
+    min_pts = 999
+    candidates: list[tuple[int, str]] = []
     for target in obj.get('targets', []):
         t_type = target.get('type', '').lower()
         bucket_key = BUCKET_TARGET_MAP.get(t_type)
@@ -709,10 +709,10 @@ def _best_bucket_target(obj: dict, bucket_entry: dict) -> str | None:
         pts = bucket.get('pts', 0)
         if pts >= 10:
             continue  # capped, skip
-        if pts < best_pts:
-            best_pts = pts
-            best_type = t_type
-    return best_type
+        if pts < min_pts:
+            min_pts = pts
+        candidates.append((pts, t_type))
+    return {t for pts, t in candidates if pts == min_pts}
 
 
 TARGET_TYPES_LIST = [
