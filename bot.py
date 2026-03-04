@@ -222,7 +222,25 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
             objectives_with_distance.sort(key=lambda x: (x['distance'] is None, x['distance'] if x['distance'] is not None else float('inf')))
         else:
             objectives_with_distance.sort(key=lambda x: int(x['objective'].get('priority', 0)), reverse=True)
-        
+
+        # Fetch bucket data for boost-type objectives (to indicate best target to invest in)
+        # One API call per unique system among boost objectives
+        boost_bucket_map: dict = {}  # (system, faction) -> bucket entry
+        BGS_BIN_TYPES = {'boost', 'expand', 'reduce', 'equalise', 'retreat'}
+        boost_systems = set()
+        for item in objectives_with_distance[:5]:
+            obj = item['objective']
+            if obj.get('type', '').lower() in BGS_BIN_TYPES and obj.get('system') and obj.get('faction'):
+                boost_systems.add(obj['system'])
+        for system_name in boost_systems:
+            try:
+                bucket_data = get_json('buckets', params={'period': 'ct', 'system': system_name})
+                for entry in bucket_data.get('buckets', []):
+                    key = (entry.get('system', ''), entry.get('faction', ''))
+                    boost_bucket_map[key] = entry
+            except Exception:
+                pass  # silently skip if bucket fetch fails
+
         # Create embeds - one per objective with color-coding
         embeds = []
         is_first_embed = True
@@ -246,6 +264,15 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
             targets = obj.get('targets', [])
             target_summary = []
             obj_id = obj.get('id')
+
+            # Determine best bucket target for boost-type objectives
+            obj_type = obj.get('type', '').lower()
+            best_target_type = None
+            if obj_type in BGS_BIN_TYPES:
+                bucket_key = (obj.get('system', ''), obj.get('faction', ''))
+                bucket_entry_for_obj = boost_bucket_map.get(bucket_key) or {}
+                best_target_type = _best_bucket_target(obj, bucket_entry_for_obj)
+
             for target in targets:
                 t_type = target.get('type', '').upper()
                 icon = get_target_icon(t_type)
@@ -277,7 +304,11 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     # Build progress string showing both metrics
                     progress_str = f"This Tick: **{_fmt_credits(current_total)} / {_fmt_credits(target_overall)}** ({percent_ct:.1f}%)\n*{_fmt_credits(objective_total)} completed since {start_display}*"
 
-                    target_summary.append(f"{icon} {t_type}\n{progress_str}")
+                    # Mark best bucket target (lowest pts = easiest to fill, exponential scaling)
+                    is_best = best_target_type and target.get('type', '').lower() == best_target_type
+                    priority_marker = " ← **invest here**" if is_best else ""
+
+                    target_summary.append(f"{icon} {t_type}{priority_marker}\n{progress_str}")
 
             # Build the value content with proper formatting
             # Build critical info first (system, faction, targets)
@@ -647,6 +678,42 @@ async def send_chunked_embeds(interaction: discord.Interaction, embeds: list):
             await interaction.followup.send(embeds=chunk)
 
 OFFICER_ROLE = os.getenv('OFFICER_ROLE', 'Comrade [Veteran]')
+
+# Maps objective target type -> bucket key in the /buckets response
+BUCKET_TARGET_MAP = {
+    'inf':        'missions',
+    'bv':         'bounty',
+    'trade_prof': 'trade',
+    'expl':       'exploration',
+}
+
+
+def _best_bucket_target(obj: dict, bucket_entry: dict) -> str | None:
+    """Return the target type with the lowest (uncapped) bucket pts for a boost objective.
+
+    Since thresholds are exponential, the bucket at 0 pts requires the least absolute
+    effort for the next point — that is the one to prioritise.
+    Returns None if no bucket data or all relevant buckets are capped.
+    """
+    if not bucket_entry:
+        return None
+    buckets = bucket_entry.get('buckets', {})
+    best_type = None
+    best_pts = 999
+    for target in obj.get('targets', []):
+        t_type = target.get('type', '').lower()
+        bucket_key = BUCKET_TARGET_MAP.get(t_type)
+        if not bucket_key:
+            continue
+        bucket = buckets.get(bucket_key, {})
+        pts = bucket.get('pts', 0)
+        if pts >= 10:
+            continue  # capped, skip
+        if pts < best_pts:
+            best_pts = pts
+            best_type = t_type
+    return best_type
+
 
 TARGET_TYPES_LIST = [
     {"value": "visit",       "label": "Visit"},
