@@ -228,7 +228,7 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
         boost_bucket_map: dict = {}  # (system, faction) -> bucket entry
         BGS_BIN_TYPES = {'boost', 'expand', 'reduce', 'equalise', 'retreat'}
         boost_systems = set()
-        for item in objectives_with_distance[:5]:
+        for item in objectives_with_distance[:7]:
             obj = item['objective']
             if obj.get('type', '').lower() in BGS_BIN_TYPES and obj.get('system') and obj.get('faction'):
                 boost_systems.add(obj['system'])
@@ -244,33 +244,34 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
         # Create embeds - one per objective with color-coding
         embeds = []
         is_first_embed = True
-        
-        for item in objectives_with_distance[:5]:  # Show top 5
+
+        for item in objectives_with_distance[:7]:
             obj = item['objective']
             distance = item['distance']
-            
+
             priority = "⭐" * min(int(obj.get('priority', 0)), 5)
             title_text = obj.get('title', 'Unnamed')
             system = obj.get('system', 'N/A')
             faction = obj.get('faction', 'N/A')
             obj_desc = obj.get('description', '')
-            
+
             # Build field name with distance
             field_name = f"{priority} {title_text}"
             if distance is not None:
                 field_name += f" [{distance:.2f} Ly]"
-            
+
             # Build target summary
             targets = obj.get('targets', [])
             target_summary = []
             obj_id = obj.get('id')
 
-            # Determine best bucket target for boost-type objectives
+            # Determine best bucket targets and fetch bucket data for boost-type objectives
             obj_type = obj.get('type', '').lower()
             best_target_types: set[str] = set()
+            bucket_entry_for_obj: dict = {}
             if obj_type in BGS_BIN_TYPES:
-                bucket_key = (obj.get('system', ''), obj.get('faction', ''))
-                bucket_entry_for_obj = boost_bucket_map.get(bucket_key) or {}
+                bk = (obj.get('system', ''), obj.get('faction', ''))
+                bucket_entry_for_obj = boost_bucket_map.get(bk) or {}
                 best_target_types = _best_bucket_targets(obj, bucket_entry_for_obj)
 
             for target in targets:
@@ -308,7 +309,21 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     is_best = best_target_types and target.get('type', '').lower() in best_target_types
                     priority_marker = " ⬆" if is_best else ""
 
-                    target_summary.append(f"{icon} {t_type}{priority_marker}\n{progress_str}")
+                    # For boost-type objectives, show bucket pts inline
+                    bucket_line = ""
+                    bucket_map_key = BUCKET_TARGET_MAP.get(target.get('type', '').lower())
+                    if bucket_entry_for_obj and bucket_map_key:
+                        b = bucket_entry_for_obj.get('buckets', {}).get(bucket_map_key, {})
+                        if b:
+                            pts = b.get('pts', 0)
+                            remaining = b.get('remaining', 0)
+                            pip_str = _pips(pts)
+                            if pts >= 10:
+                                bucket_line = f"`{pip_str}` **CAPPED**\n"
+                            else:
+                                bucket_line = f"`{pip_str}` {pts}/10 · {_fmt_credits(remaining)} to next\n"
+
+                    target_summary.append(f"{icon} {t_type}{priority_marker}\n{bucket_line}{progress_str}")
 
             # Build the value content with proper formatting
             # Build critical info first (system, faction, targets)
