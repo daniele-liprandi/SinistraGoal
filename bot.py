@@ -276,22 +276,38 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
 
             for target in targets:
                 t_type = target.get('type', '').upper()
+                t_type_lower = target.get('type', '').lower()
                 icon = get_target_icon(t_type)
                 target_overall = target.get('targetoverall', 0)
+                label = TARGET_LABEL_MAP.get(t_type_lower, t_type)
 
-                # Get objective period progress from backend's progressDetail
-                progress_data = _get_progress_from_backend(target)
-                objective_total = progress_data.get("total_objective", 0)
+                # Check for bucket data (boost-type objectives with a mapped target type)
+                bucket_map_key = BUCKET_TARGET_MAP.get(t_type_lower)
+                b_data = {}
+                if bucket_entry_for_obj and bucket_map_key:
+                    b_data = bucket_entry_for_obj.get('buckets', {}).get(bucket_map_key, {})
 
-                # Get current tick progress from the ct_progress_map
-                ct_key = (obj_id, target.get('type'))
-                current_total = ct_progress_map.get(ct_key, 0)
+                is_best = best_target_types and t_type_lower in best_target_types
+                marker = "🎯 " if is_best else ""
 
-                if target_overall > 0:
-                    # Calculate percentages
+                if b_data:
+                    # Compact bucket format: [🎯] ICON Name pts/10 · X to next
+                    pts = b_data.get('pts', 0)
+                    remaining_val = b_data.get('remaining', 0)
+                    if pts >= 10:
+                        target_summary.append(f"{marker}{icon} **{label}** CAPPED")
+                    else:
+                        target_summary.append(f"{marker}{icon} **{label}** {pts}/10 · {_fmt_credits(remaining_val)} to next")
+
+                elif target_overall > 0:
+                    # Standard progress format for non-bucket targets
+                    progress_data = _get_progress_from_backend(target)
+                    objective_total = progress_data.get("total_objective", 0)
+
+                    ct_key = (obj_id, t_type_lower)
+                    current_total = ct_progress_map.get(ct_key, 0)
                     percent_ct = (current_total / target_overall * 100) if target_overall > 0 else 0
 
-                    # Format the start date for display
                     start_date = obj.get('startdate', '')
                     if start_date:
                         try:
@@ -302,28 +318,9 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     else:
                         start_display = 'mission start'
 
-                    # Build progress string showing both metrics
                     progress_str = f"This Tick: **{_fmt_credits(current_total)} / {_fmt_credits(target_overall)}** ({percent_ct:.1f}%)\n*{_fmt_credits(objective_total)} completed since {start_display}*"
+                    target_summary.append(f"{icon} {t_type}\n{progress_str}")
 
-                    # Mark best bucket targets (all tied at lowest pts = easiest to fill)
-                    is_best = best_target_types and target.get('type', '').lower() in best_target_types
-                    priority_marker = " ⬆" if is_best else ""
-
-                    # For boost-type objectives, show bucket pts inline
-                    bucket_line = ""
-                    bucket_map_key = BUCKET_TARGET_MAP.get(target.get('type', '').lower())
-                    if bucket_entry_for_obj and bucket_map_key:
-                        b = bucket_entry_for_obj.get('buckets', {}).get(bucket_map_key, {})
-                        if b:
-                            pts = b.get('pts', 0)
-                            remaining = b.get('remaining', 0)
-                            pip_str = _pips(pts)
-                            if pts >= 10:
-                                bucket_line = f"`{pip_str}` **CAPPED**\n"
-                            else:
-                                bucket_line = f"`{pip_str}` {pts}/10 · {_fmt_credits(remaining)} to next\n"
-
-                    target_summary.append(f"{icon} {t_type}{priority_marker}\n{bucket_line}{progress_str}")
 
             # Build the value content with proper formatting
             # Build critical info first (system, faction, targets)
@@ -743,6 +740,7 @@ TARGET_TYPES_LIST = [
     {"value": "mission_fail","label": "Mission Fail"},
 ]
 VALID_TARGET_TYPES = {t["value"] for t in TARGET_TYPES_LIST}
+TARGET_LABEL_MAP = {t["value"]: t["label"] for t in TARGET_TYPES_LIST}
 
 
 def _objectives_base_url() -> str:
