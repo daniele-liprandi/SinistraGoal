@@ -288,16 +288,16 @@ async def show_goals_helper(interaction: discord.Interaction, filter_value: str 
                     b_data = bucket_entry_for_obj.get('buckets', {}).get(bucket_map_key, {})
 
                 is_best = best_target_types and t_type_lower in best_target_types
-                marker = "🎯 " if is_best else ""
-
+                if is_best:
+                    target_summary.append(f"{icon} **{label}** - Best target to invest in for next point")
                 if b_data:
                     # Compact bucket format: [🎯] ICON Name pts/10 · X to next
                     pts = b_data.get('pts', 0)
                     remaining_val = b_data.get('remaining', 0)
                     if pts >= 10:
-                        target_summary.append(f"{marker}{icon} **{label}** CAPPED")
+                        target_summary.append(f"{icon} **{label}** CAPPED")
                     else:
-                        target_summary.append(f"{marker}{icon} **{label}** {pts}/10 · {_fmt_credits(remaining_val)} to next")
+                        target_summary.append(f"{icon} **{label}** {pts}/10 · {_fmt_credits(remaining_val)} to next BGS point")
 
                 elif target_overall > 0:
                     # Standard progress format for non-bucket targets
